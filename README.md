@@ -43,3 +43,10 @@ The paths to the logs and the repository can be set in the options that can be a
 **Use git** - If not checked, each version of the file will be saved separately with a specified date and revision number. If checked, the saved files will be overwritten and a commit will be performed for each change made.
 
 **Close on exit** - If unchecked, clicking the close button icon will minimize it to the bar. If checked, it will close the program as standard.
+
+<h2>Disclaimer</h2>
+This project and its creators are not affiliated with NextGen Healthcare in any way.
+
+The solution is an independent application not linked to the Mirth Connect product source code.
+
+For more information on regulations, please see the licensing arrangements.
