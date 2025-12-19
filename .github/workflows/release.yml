@@ -27,10 +27,11 @@ jobs:
     - name: Publish .NET App
       run: dotnet publish MirthConnectVersionControl\MirthConnectVersionControl.csproj -c Release -r win-x64 --self-contained false -o MirthConnectVersionControl\bin\Release\net8.0-windows\publish
 
-    - name: Build Installer (Inno Setup)
-      uses: Minionguyjosh/Inno-Setup-Action@v1.2.2
-      with:
-        path: MCVC.iss
+    - name: Install Inno Setup
+      run: choco install innosetup
+
+    - name: Build Installer
+      run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" MCVC.iss'
         
     - name: Rename Installer
       run: |
