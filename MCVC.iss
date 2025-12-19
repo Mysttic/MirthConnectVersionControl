@@ -1,14 +1,14 @@
 [Setup]
 ; Ogólne ustawienia instalatora
 AppName=MirthConnectVersionControl
-AppVersion=1.0
+AppVersion=2.0
 DefaultDirName={pf}\MCVC
 DefaultGroupName=MCVC
 OutputDir=.
-OutputBaseFilename=MirthConnectVersionControlInstaller
+OutputBaseFilename=MirthConnectVersionControl_Setup
 Compression=lzma
 SolidCompression=yes
-SetupIconFile=MirthConnectVersionControl\Resources\MCVCicon_black.ico
+SetupIconFile=MirthConnectVersionControl\Resources\MCVCicon.ico
 WizardImageFile=MirthConnectVersionControl\Resources\MCVClogo.bmp
 WizardSmallImageFile=MirthConnectVersionControl\Resources\MCVClogo.bmp
 

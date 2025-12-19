@@ -1,222 +1,208 @@
-using MirthConnectVersionControl.DatabaseTools;
-using MirthConnectVersionControl.Properties;
-using System.ComponentModel;
-using System.Diagnostics;
+using MirthConnectVersionControl.Services.Interfaces;
+using System;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace MirthConnectVersionControl
 {
     public partial class MainForm : Form
-	{
-		#region Properties
+    {
+        private readonly IDatabaseService _dbService;
+        private readonly IConfigurationService _configService;
+        private readonly ILoggingService _logger;
+        private readonly IGitService _git;
 
-		private NotifyIcon notifyIcon;
-		MSSQLListener mssqlListener { get; set; }
-		PostgreSQLListener postgresqlListener { get; set; }
-		MySQLListener mysqlListener { get; set; }
-		OracleListener oracleListener { get; set; }
+        private bool _forceClose = false;
 
-		#endregion Properties
+        // Default Constructor for Designer support (though custom DI constructor is used in Program.cs)
+        public MainForm()
+        {
+            InitializeComponent();
+        }
 
-		#region Methods
+        public MainForm(IDatabaseService db, IConfigurationService config, ILoggingService logger, IGitService git) : this()
+        {
+            _dbService = db;
+            _configService = config;
+            _logger = logger;
+            _git = git;
 
-		public MainForm()
-		{
-			InitializeComponent();
-			InitializeNotifyIcon();
-			mssqlListener = new MSSQLListener(this);
-			postgresqlListener = new PostgreSQLListener(this);
-			mysqlListener = new MySQLListener(this);
-			oracleListener = new OracleListener(this);
-		}
+            InitializeCustom();
+        }
 
-		/// <summary>
-		/// Initialize the NotifyIcon
-		/// </summary>
-		private void InitializeNotifyIcon()
-		{
-			notifyIcon = new NotifyIcon();
-			notifyIcon.Icon = Icon.FromHandle(Resources.MCVClogo.GetHicon());
-			notifyIcon.Text = "MirthConnectVersionControl";
-			notifyIcon.Visible = true;
+        private void InitializeCustom()
+        {
+            // Set Icons from Resources
+            try {
+                var icon = MirthConnectVersionControl.Properties.Resources.MCVCicon;
+                this.Icon = icon;
+                notifyIcon1.Icon = icon;
+            } catch { /* use default if missing */ }
 
-			ContextMenuStrip contextMenu = new ContextMenuStrip();
-			contextMenu.Items.Add("Open", null, Open_Click);
-			contextMenu.Items.Add("Exit", null, Exit_Click);
-			notifyIcon.ContextMenuStrip = contextMenu;
-			notifyIcon.DoubleClick += Open_Click;
-		}
+            // Subscribe to Logger
+            _logger.LogReceived += OnLogReceived;
 
-		#endregion Methods
+            // Load UI
+            LoadConfigToUI();
+        }
 
-		#region Events
+        private void OnLogReceived(string msg)
+        {
+            if (rtbLogs.InvokeRequired)
+            {
+                rtbLogs.Invoke(new Action<string>(OnLogReceived), msg);
+                return;
+            }
 
-		/// <summary>
-		/// Open the form when the NotifyIcon is double clicked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void Open_Click(object sender, EventArgs e)
-		{
-			this.Show();
-			this.WindowState = FormWindowState.Normal;
-		}
+            rtbLogs.AppendText(msg + Environment.NewLine);
+            rtbLogs.ScrollToCaret();
+        }
 
-		/// <summary>
-		/// Exit the application
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void Exit_Click(object sender, EventArgs e)
-		{
-			notifyIcon.Visible = false;
-			Application.Exit();
-		}
+        private void LoadConfigToUI()
+        {
+            var conf = _configService.CurrentConfig;
+            cmbDbType.SelectedItem = conf.SelectedDatabase;
+            txtRepoPath.Text = conf.RepoPath;
+            chkUseGit.Checked = conf.UseGit;
+            chkCloseOnExit.Checked = conf.CloseOnExit;
 
-		/// <summary>
-		/// Minimize the form to the system tray when the form is minimized
-		/// </summary>
-		/// <param name="e"></param>
-		protected override void OnResize(EventArgs e)
-		{
-			base.OnResize(e);
-			if (this.WindowState == FormWindowState.Minimized)
-			{
-				this.Hide();
-			}
-		}
+            UpdateConnectionStringInput();
+        }
 
-		/// <summary>
-		/// Close the form when the close button is clicked
-		/// </summary>
-		/// <param name="e"></param>
-		protected override void OnClosing(CancelEventArgs e)
-		{
-			if (Settings.Default.CloseOnExit)
-				base.OnClosing(e);
-			else
-			{
-				e.Cancel = true;
-				this.WindowState = FormWindowState.Minimized;
-				this.Hide();
-			}
-		}
+        private void UpdateConnectionStringInput()
+        {
+            string type = cmbDbType.SelectedItem?.ToString() ?? "MSSQL";
+            txtConnString.Text = _configService.GetDecryptedConnectionString(type);
+        }
 
-		/// <summary>
-		/// Open the form when the NotifyIcon is double clicked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void EditButton_Click(object sender, EventArgs e)
-		{
-			switch ((sender as Button)?.Name)
-			{
-				case "EditMSSQLButton":
-					new EditSettingForm(
-						"MSSQL", 
-						DbSettings.Default.MSSQL
-						).ShowDialog();
-					break;
-				case "EditPostgreSQLButton":
-					new EditSettingForm(
-						"PostgreSQL", 
-						DbSettings.Default.PostgreSQL
-						).ShowDialog();
-					break;
-				case "EditMySQLButton":
-					new EditSettingForm(
-						"MySQL",
-						DbSettings.Default.MySQL
-						).ShowDialog();
-					break;
-				case "OracleButton":
-					new EditSettingForm(
-						"Oracle",
-						DbSettings.Default.Oracle
-						).ShowDialog();
-					break;
-			}
-		}
+        private void cmbDbType_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            UpdateConnectionStringInput();
+        }
 
-		/// <summary>
-		/// Start or stop the listener when the checkbox is checked or unchecked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void checkBoxMSSQL_CheckedChanged(object sender, EventArgs e)
-		{
-			if ((sender as CheckBox)?.Checked == true)			
-				mssqlListener.Start();			
-			else 			
-				mssqlListener.Stop(); 			
-		}
+        private void btnSave_Click(object sender, EventArgs e)
+        {
+            string dbType = cmbDbType.SelectedItem?.ToString() ?? "MSSQL";
+            
+            _configService.CurrentConfig.SelectedDatabase = dbType;
+            _configService.CurrentConfig.RepoPath = txtRepoPath.Text;
+            _configService.CurrentConfig.UseGit = chkUseGit.Checked;
+            _configService.CurrentConfig.CloseOnExit = chkCloseOnExit.Checked;
 
-		/// <summary>
-		/// Start or stop the listener when the checkbox is checked or unchecked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void checkboxPostgreSQL_CheckedChanged(object sender, EventArgs e)
-		{
-			if ((sender as CheckBox)?.Checked == true)
-				postgresqlListener.Start();
-			else
-				postgresqlListener.Stop();
-		}
+            // Save encrypted connection string
+            _configService.SetConnectionString(dbType, txtConnString.Text);
+            
+            _configService.Save();
+            MessageBox.Show("Configuration Saved!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
 
-		/// <summary>
-		/// Start or stop the listener when the checkbox is checked or unchecked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void checkboxMySQL_CheckedChanged(object sender, EventArgs e)
-		{
-			if ((sender as CheckBox)?.Checked == true)
-				mysqlListener.Start();
-			else
-				mysqlListener.Stop();
-		}
+        private async void btnTestConnection_Click(object sender, EventArgs e)
+        {
+            string dbType = cmbDbType.SelectedItem?.ToString() ?? "MSSQL";
+            string connStr = txtConnString.Text;
 
-		/// <summary>
-		/// Start or stop the listener when the checkbox is checked or unchecked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void checkboxOracle_CheckedChanged(object sender, EventArgs e)
-		{
-			if ((sender as CheckBox)?.Checked == true)
-				oracleListener.Start();
-			else
-				oracleListener.Stop();
-		}
+            btnTestConnection.Enabled = false;
+            btnTestConnection.Text = "Testing...";
 
-		/// <summary>
-		/// Open the settings form when the settings button is clicked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void SettingsButton_Click(object sender, EventArgs e)
-		{
-			new GlobalSettingsForm().ShowDialog();
-		}
+            bool result = await _dbService.TestConnection(dbType, connStr);
 
-		/// <summary>
-		/// Open the log file when the browse log button is clicked
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void BrowseLogButton_Click(object sender, EventArgs e)
-		{
-			if (Path.Exists(Settings.Default.LogPath))
-				Process.Start(new ProcessStartInfo
-				{
-					FileName = Settings.Default.LogPath,
-					UseShellExecute = true,
-					Verb = "open"
-				});
-			else
-				MessageBox.Show("Log path not found", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-		}
+            btnTestConnection.Enabled = true;
+            btnTestConnection.Text = "Test Connection";
 
-		#endregion Events
-	}
+            if (result)
+                MessageBox.Show("Connection Successful!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            else
+                MessageBox.Show("Connection Failed. Check logs for details.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        private void btnBrowseRepo_Click(object sender, EventArgs e)
+        {
+            using (var fbd = new FolderBrowserDialog())
+            {
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    txtRepoPath.Text = fbd.SelectedPath;
+                }
+            }
+        }
+
+        private async void btnStartStop_Click(object sender, EventArgs e)
+        {
+            if (_dbService.IsRunning)
+            {
+                _dbService.StopListener();
+                btnStartStop.Text = "Start Listener";
+                lblStatus.Text = "Status: Stopped";
+                lblStatus.ForeColor = Color.DimGray;
+                lblStatus.BackColor = Color.Transparent;
+                
+                notifyIcon1.Text = "MCVC - Stopped";
+                // Optionally change Icon
+            }
+            else
+            {
+                // Ensure Config is saved/current before starting
+                btnSave_Click(sender, e);
+                
+                btnStartStop.Enabled = false;
+                await _dbService.StartListener();
+                btnStartStop.Enabled = true;
+                
+                if (_dbService.IsRunning)
+                {
+                    btnStartStop.Text = "Stop Listener";
+                    lblStatus.Text = "Status: RUNNING";
+                    lblStatus.ForeColor = Color.LimeGreen;
+                    
+                    notifyIcon1.Text = "MCVC - Running";
+                }
+            }
+        }
+
+        #region Tray & Closing Logic
+
+        private void MainForm_Resize(object sender, EventArgs e)
+        {
+            if (WindowState == FormWindowState.Minimized)
+            {
+                Hide();
+                notifyIcon1.Visible = true;
+            }
+        }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (_forceClose || _configService.CurrentConfig.CloseOnExit)
+            {
+                _dbService.StopListener();
+                notifyIcon1.Visible = false;
+                return;
+            }
+
+            e.Cancel = true;
+            Hide();
+            notifyIcon1.Visible = true;
+            notifyIcon1.ShowBalloonTip(1000, "MCVC", "Application minimized to tray.", ToolTipIcon.Info);
+        }
+
+        private void notifyIcon1_DoubleClick(object sender, EventArgs e)
+        {
+            Show();
+            WindowState = FormWindowState.Normal;
+        }
+
+        private void mnuOpen_Click(object sender, EventArgs e)
+        {
+            Show();
+            WindowState = FormWindowState.Normal;
+        }
+
+        private void mnuExit_Click(object sender, EventArgs e)
+        {
+            _forceClose = true;
+            Application.Exit();
+        }
+
+        #endregion
+    }
 }

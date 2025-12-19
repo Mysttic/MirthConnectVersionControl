@@ -1,4 +1,5 @@
-using Microsoft.IdentityModel.Tokens;
+using MirthConnectVersionControl.Services;
+using MirthConnectVersionControl.Services.Interfaces;
 
 namespace MirthConnectVersionControl
 {
@@ -13,30 +14,15 @@ namespace MirthConnectVersionControl
 			// To customize application configuration such as set high DPI settings or default font,
 			// see https://aka.ms/applicationconfiguration.
 			ApplicationConfiguration.Initialize();
-			InitializeCatalogs();
-			Application.Run(new MainForm());
-		}
 
-		/// <summary>
-		/// Initialize the application catalogs
-		/// </summary>
-		internal static void InitializeCatalogs()
-		{
-			if (string.IsNullOrEmpty(Properties.Settings.Default.LogPath))
-			{
-				Properties.Settings.Default.LogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirthConnectVersionControl", "Logs");
-				Properties.Settings.Default.Save();
-				if (!Directory.Exists(Properties.Settings.Default.LogPath))
-					Directory.CreateDirectory(Properties.Settings.Default.LogPath);
-			}			
-			if (string.IsNullOrEmpty(Properties.Settings.Default.RepoPath))
-			{
-				Properties.Settings.Default.RepoPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirthConnectVersionControl", "Repository");
-				Properties.Settings.Default.Save();
-				if (!Directory.Exists(Properties.Settings.Default.RepoPath))
-					Directory.CreateDirectory(Properties.Settings.Default.RepoPath);
-			}
-			
+			// Composition Root (Manual DI)
+			IEncryptionService encryption = new EncryptionService();
+			IConfigurationService config = new ConfigurationService(encryption);
+			ILoggingService logger = new LoggingService();
+			IGitService git = new GitService(config, logger);
+			IDatabaseService db = new DatabaseService(config, logger, git);
+
+			Application.Run(new MainForm(db, config, logger, git));
 		}
 	}
 }
