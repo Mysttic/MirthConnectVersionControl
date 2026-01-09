@@ -58,7 +58,7 @@ namespace MirthConnectVersionControl.Services
         private static readonly Dictionary<string, string> _queries = new Dictionary<string, string>()
         {
             { "MSSQL", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
-            { "PostgreSQL", "SELECT \"Id\", \"Name\", \"Revision\", \"Content\" FROM \"CHANNEL\"" },
+            { "PostgreSQL", "SELECT id, name, revision, content FROM channel" },
             { "MySQL", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
             { "Oracle", "SELECT Id, Name, Revision, Content FROM CHANNEL" }
         };
