@@ -34,15 +34,18 @@ namespace MirthConnectVersionControl.Services
             }
         }
 
-        public void ProcessChange(string dbType, string id, string name, string revision, string content)
+        public void ProcessChange(string dbType, string tableType, string id, string name, string revision, string content)
         {
             try
             {
                 string repoPath = _config.CurrentConfig.RepoPath;
-                string dbFolder = Path.Combine(repoPath, dbType);
 
-                if (!Directory.Exists(dbFolder))
-                    Directory.CreateDirectory(dbFolder);
+                // Organize by database type and table type (e.g., PostgreSQL/channels, PostgreSQL/code_templates)
+                string tableFolder = tableType == "channel" ? "channels" : "code_templates";
+                string targetFolder = Path.Combine(repoPath, dbType, tableFolder);
+
+                if (!Directory.Exists(targetFolder))
+                    Directory.CreateDirectory(targetFolder);
 
                 string fileName = name;
                 if (!_config.CurrentConfig.UseGit)
@@ -50,14 +53,14 @@ namespace MirthConnectVersionControl.Services
                     // If not using Git features fully (just file dump), append timestamp/rev
                     fileName = $"{name}_{DateTime.Now:yyyy_MM_dd_HH_mm_ss}_Rev{revision}";
                 }
-                
+
                 // Sanitize filename
-                foreach(char c in Path.GetInvalidFileNameChars())
+                foreach (char c in Path.GetInvalidFileNameChars())
                 {
                     fileName = fileName.Replace(c, '_');
                 }
 
-                string filePath = Path.Combine(dbFolder, fileName);
+                string filePath = Path.Combine(targetFolder, fileName);
                 File.WriteAllText(filePath, content);
 
                 if (_config.CurrentConfig.UseGit)
@@ -74,8 +77,9 @@ namespace MirthConnectVersionControl.Services
                         if (status.IsDirty)
                         {
                             var author = new Signature("MCVC", "mcvc@local", DateTime.Now);
-                            repo.Commit($"Update {name} (Rev: {revision})", author, author);
-                            _logger.LogInfo($"Committed changes for {name} (Rev: {revision})");
+                            string itemType = tableType == "channel" ? "channel" : "code template";
+                            repo.Commit($"Update {itemType} '{name}' (Rev: {revision})", author, author);
+                            _logger.LogInfo($"Committed changes for {itemType} '{name}' (Rev: {revision})");
                         }
                     }
                 }

@@ -18,7 +18,10 @@ Supported databases:
 
 <h2>How to use</h2>
 
-The application features a modern tabbed interface with two main sections: **Dashboard** and **Settings**.
+### Installation
+
+> **Note:** The installer is currently unsigned. Windows SmartScreen may show a warning during installation.  
+> Click **"More info"** → **"Run anyway"** to proceed. We're working on obtaining a code signing certificate.
 
 ### Dashboard Tab
 
@@ -54,6 +57,14 @@ The Settings tab contains all configuration options for the application.
 The application includes system tray integration. When minimized (if "Close completely on Exit" is unchecked), you can:
 - Double-click the tray icon to restore the window
 - Right-click for a context menu with "Open" and "Exit" options
+
+<h2>Code Signing Policy</h2>
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+**Maintainer:** [Mysttic](https://github.com/Mysttic)
+
+**Privacy:** This program will not transfer any information to other networked systems unless specifically requested by the user (database connection configured by user).
 
 <h2>Disclaimer</h2>
 This project and its creators are not affiliated with NextGen Healthcare in any way.

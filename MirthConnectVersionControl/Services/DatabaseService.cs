@@ -55,12 +55,25 @@ namespace MirthConnectVersionControl.Services
             }
         }
 
-        private static readonly Dictionary<string, string> _queries = new Dictionary<string, string>()
+        // Queries for each table type per database
+        private static readonly Dictionary<string, Dictionary<string, string>> _tableQueries = new()
         {
-            { "MSSQL", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
-            { "PostgreSQL", "SELECT id, name, revision, content FROM channel" },
-            { "MySQL", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
-            { "Oracle", "SELECT Id, Name, Revision, Content FROM CHANNEL" }
+            { "MSSQL", new Dictionary<string, string> {
+                { "channel", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
+                { "code_template", "SELECT Id, Name, Revision, Content FROM CODE_TEMPLATE" }
+            }},
+            { "PostgreSQL", new Dictionary<string, string> {
+                { "channel", "SELECT id, name, revision, content FROM channel" },
+                { "code_template", "SELECT id, name, revision, content FROM code_template" }
+            }},
+            { "MySQL", new Dictionary<string, string> {
+                { "channel", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
+                { "code_template", "SELECT Id, Name, Revision, Content FROM CODE_TEMPLATE" }
+            }},
+            { "Oracle", new Dictionary<string, string> {
+                { "channel", "SELECT Id, Name, Revision, Content FROM CHANNEL" },
+                { "code_template", "SELECT Id, Name, Revision, Content FROM CODE_TEMPLATE" }
+            }}
         };
 
         private async Task ListenerLoop(string dbType, CancellationToken token)
@@ -74,13 +87,18 @@ namespace MirthConnectVersionControl.Services
                 return;
             }
 
-            if (!_queries.TryGetValue(dbType, out string? sqlQuery))
+            if (!_tableQueries.TryGetValue(dbType, out var tableQueries))
             {
-                _logger.LogError($"No hardcoded query defined for {dbType}.");
+                _logger.LogError($"No queries defined for {dbType}.");
                 return;
             }
 
-            Dictionary<string, string> cache = new Dictionary<string, string>();
+            // Separate cache for each table type
+            Dictionary<string, Dictionary<string, string>> caches = new()
+            {
+                { "channel", new Dictionary<string, string>() },
+                { "code_template", new Dictionary<string, string>() }
+            };
 
             while (!token.IsCancellationRequested)
             {
@@ -90,39 +108,50 @@ namespace MirthConnectVersionControl.Services
                     conn = CreateConnection(dbType, connStr);
                     await conn.OpenAsync(token);
 
-                    // _logger.LogInfo("Connected to database, checking for changes...");
-
-                    using (var command = conn.CreateCommand())
+                    // Process each table type
+                    foreach (var tableEntry in tableQueries)
                     {
-                        command.CommandText = sqlQuery;
+                        string tableType = tableEntry.Key;
+                        string sqlQuery = tableEntry.Value;
+                        var cache = caches[tableType];
 
-                        using (var reader = await command.ExecuteReaderAsync(token))
+                        try
                         {
-                            while (await reader.ReadAsync(token))
+                            using (var command = conn.CreateCommand())
                             {
-                                // Assumes columns by name from config or fallback to index? 
-                                // To match previous logic safe parsing, let's try to find ordinals or fallback.
-                                // Previous logic hardcoded indices 0,1,2,3 for Id, Name, Revision, Content.
-                                // We'll try to use column names if possible.
+                                command.CommandText = sqlQuery;
 
-                                string id = GetValue(reader, dbConfig.IdColumn, 0);
-                                string name = GetValue(reader, dbConfig.NameColumn, 1);
-                                string revision = GetValue(reader, dbConfig.RevisionColumn, 2);
-                                string content = GetValue(reader, dbConfig.ContentColumn, 3);
+                                using (var reader = await command.ExecuteReaderAsync(token))
+                                {
+                                    while (await reader.ReadAsync(token))
+                                    {
+                                        string id = GetValue(reader, dbConfig.IdColumn, 0);
+                                        string name = GetValue(reader, dbConfig.NameColumn, 1);
+                                        string revision = GetValue(reader, dbConfig.RevisionColumn, 2);
+                                        string content = GetValue(reader, dbConfig.ContentColumn, 3);
 
-                                if (!cache.TryGetValue(id, out var cachedRev))
-                                {
-                                    cache[id] = revision;
-                                    _logger.LogInfo($"New item found: {name} (Rev: {revision})");
-                                    _git.ProcessChange(dbType, id, name, revision, content);
-                                }
-                                else if (cachedRev != revision)
-                                {
-                                    cache[id] = revision;
-                                    _logger.LogInfo($"Update found: {name} (Rev: {revision})");
-                                    _git.ProcessChange(dbType, id, name, revision, content);
+                                        string cacheKey = $"{tableType}_{id}";
+
+                                        if (!cache.TryGetValue(id, out var cachedRev))
+                                        {
+                                            cache[id] = revision;
+                                            _logger.LogInfo($"New {tableType}: {name} (Rev: {revision})");
+                                            _git.ProcessChange(dbType, tableType, id, name, revision, content);
+                                        }
+                                        else if (cachedRev != revision)
+                                        {
+                                            cache[id] = revision;
+                                            _logger.LogInfo($"Updated {tableType}: {name} (Rev: {revision})");
+                                            _git.ProcessChange(dbType, tableType, id, name, revision, content);
+                                        }
+                                    }
                                 }
                             }
+                        }
+                        catch (Exception ex) when (ex.Message.Contains("nie istnieje") || ex.Message.Contains("does not exist"))
+                        {
+                            // Table doesn't exist in this database - skip silently
+                            // This allows monitoring databases that don't have code_template table
                         }
                     }
                 }

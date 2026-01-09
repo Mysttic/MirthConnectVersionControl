@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # Required for SignPath
 
 jobs:
   build:
@@ -50,6 +51,42 @@ jobs:
            Get-ChildItem -Recurse
            exit 1
         }
+
+    # SignPath Code Signing (only runs when SIGNPATH_API_TOKEN is configured)
+    - name: Upload Unsigned Installer for Signing
+      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      env:
+        HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      id: upload-unsigned
+      uses: actions/upload-artifact@v4
+      with:
+        name: unsigned-installer
+        path: MirthConnectVersionControl_Setup_*.exe
+
+    - name: Sign Installer with SignPath
+      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      env:
+        HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      id: sign
+      uses: signpath/github-action-submit-signing-request@v1
+      with:
+        api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+        organization-id: '${{ secrets.SIGNPATH_ORGANIZATION_ID }}'
+        project-slug: 'mcvc'
+        signing-policy-slug: 'release-signing'
+        github-artifact-id: '${{ steps.upload-unsigned.outputs.artifact-id }}'
+        wait-for-completion: true
+        output-artifact-directory: './signed'
+
+    - name: Use Signed Installer
+      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      env:
+        HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      run: |
+        # Replace unsigned with signed version
+        Remove-Item MirthConnectVersionControl_Setup_*.exe
+        Move-Item ./signed/*.exe .
+        Write-Host "Using signed installer"
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
