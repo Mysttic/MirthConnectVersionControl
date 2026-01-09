@@ -17,32 +17,43 @@ Supported databases:
 - Oracle
 
 <h2>How to use</h2>
-After starting the application, we have a list of available listeners in the main window. 
-At the bottom of the window, there is a list where application logs will appear.
 
-![MainWindow](https://github.com/user-attachments/assets/102085c6-f245-490b-8afb-44432c715ab2)
+The application features a modern tabbed interface with two main sections: **Dashboard** and **Settings**.
 
-Before starting the listener, you must first enter the database connection configuration.
-By clicking 'Edit', a window will open where you can enter the ConnectionString. 
-![EditSetting](https://github.com/user-attachments/assets/8d47cca6-865b-4611-b646-731785ba3a29)
+### Dashboard Tab
 
-To start the listener, you just need to check the checkbox next to its name. 
-After starting, an entry will appear in the logs with information about logging into the database and, if any, saving channels from the database. 
-In case of any errors they would be also logged in here and checkbox will uncheck.
+The Dashboard is the main control center of the application. Here you can start/stop the database listener and monitor its activity.
 
-![MainWindow_Logs](https://github.com/user-attachments/assets/bfba7fb1-f601-441e-b289-1309894aaa5f)
+![Dashboard](docs/images/dashboard.png)
 
-The paths to the logs and the repository can be set in the options that can be accessed by clicking the Settings button.
+- **Start Listener / Stop Listener** - Click this button to start or stop monitoring the database for channel changes
+- **Status** - Shows the current state of the listener (Running/Stopped)
+- **Console Log** - A real-time log display showing all application activity, including database connections, channel saves, and any errors
 
-![GlobalSettings](https://github.com/user-attachments/assets/aba61f95-f340-4aa0-b100-3f78f36e427f)
+### Settings Tab
 
-**Log path** - specifies the location where the application logs are saved.
+The Settings tab contains all configuration options for the application.
 
-**Repo path** - specifies the location where the repository of saved channel files is located.
+![Settings](docs/images/settings.png)
 
-**Use git** - If not checked, each version of the file will be saved separately with a specified date and revision number. If checked, the saved files will be overwritten and a commit will be performed for each change made.
+#### Database Configuration
 
-**Close on exit** - If unchecked, clicking the close button icon will minimize it to the bar. If checked, it will close the program as standard.
+- **Database Type** - Select your Mirth Connect database type (MSSQL, PostgreSQL, MySQL, or Oracle)
+- **Connection String** - Enter your database connection string (displayed as asterisks for security)
+- **Test Connection** - Verify your database connection before starting the listener
+- **Save Configuration** - Save your current settings
+
+#### Repository & General
+
+- **Repo Path** - Specifies the location where the repository of saved channel files is located. Use the "..." button to browse for a folder
+- **Enable Git Version Control** - When checked, the saved files will be committed to a Git repository for each change. When unchecked, each version of the file will be saved separately with a specified date and revision number
+- **Close completely on Exit** - When unchecked, clicking the close button will minimize the application to the system tray. When checked, it will close the program completely
+
+<h2>System Tray</h2>
+
+The application includes system tray integration. When minimized (if "Close completely on Exit" is unchecked), you can:
+- Double-click the tray icon to restore the window
+- Right-click for a context menu with "Open" and "Exit" options
 
 <h2>Disclaimer</h2>
 This project and its creators are not affiliated with NextGen Healthcare in any way.
