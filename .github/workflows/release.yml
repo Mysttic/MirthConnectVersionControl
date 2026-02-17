@@ -28,6 +28,22 @@ jobs:
     - name: Publish .NET App
       run: dotnet publish MirthConnectVersionControl\MirthConnectVersionControl.csproj -c Release -r win-x64 --self-contained false -o MirthConnectVersionControl\bin\Release\net8.0-windows\publish
 
+    - name: Publish Portable Single-File EXE (self-contained)
+      run: dotnet publish MirthConnectVersionControl\MirthConnectVersionControl.csproj -c Release
+
+    - name: Copy Portable EXE to workspace root
+      shell: pwsh
+      run: |
+        $src = "MirthConnectVersionControl\bin\Release\net8.0-windows\win-x64\publish\MirthConnectVersionControl.exe"
+        if (!(Test-Path $src)) {
+          Write-Error "Portable EXE not found at $src"
+          Get-ChildItem -Recurse MirthConnectVersionControl\bin\Release\net8.0-windows | Select-Object FullName
+          exit 1
+        }
+        $dest = "MirthConnectVersionControl_Portable_${{ github.ref_name }}_win-x64.exe"
+        Copy-Item $src $dest -Force
+        Write-Host "Portable EXE copied to $dest"
+
     - name: Install Inno Setup
       run: choco install innosetup
 
@@ -96,6 +112,7 @@ jobs:
         prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
         files: |
           MirthConnectVersionControl_Setup_*.exe
+          MirthConnectVersionControl_Portable_*_win-x64.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -105,3 +122,10 @@ jobs:
       with:
         name: Installer
         path: MirthConnectVersionControl_Setup_*.exe
+
+    - name: Upload Artifact (Portable EXE, Non-Tag Build)
+      if: startsWith(github.ref, 'refs/tags/') == false
+      uses: actions/upload-artifact@v4
+      with:
+        name: Portable-EXE
+        path: MirthConnectVersionControl_Portable_*_win-x64.exe
