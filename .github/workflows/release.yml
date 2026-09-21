@@ -7,31 +7,124 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Build and publish even if this version is already released"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
   id-token: write  # Required for SignPath
 
+# A publishing run is never cancelled halfway. Killing it between signing and
+# the release upload would leave a half-published version behind, so overlapping
+# runs queue instead of replacing each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
+    # Without this, a hung step - "choco install innosetup", or SignPath with
+    # wait-for-completion - runs into the 6 h default, billed at the 2x Windows
+    # rate.
+    timeout-minutes: 30
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # Guard. Decided once, right after the checkout and before anything is
+    # built: every later step is conditioned on its result, so a run with
+    # nothing to release ends in seconds instead of spending minutes on a
+    # Windows runner. It never blocks on its own uncertainty - anything it
+    # cannot determine means "build".
+    - name: Version guard
+      id: guard
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        FORCE: ${{ inputs.force }}
+        IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+        REF_NAME: ${{ github.ref_name }}
+        BEFORE_SHA: ${{ github.event.before }}
+        CURRENT_SHA: ${{ github.sha }}
+      run: |
+        decide() {
+          echo "build=$1" >> "$GITHUB_OUTPUT"
+          echo "guard: build=$1 ($2)"
+          exit 0
+        }
+
+        # A ref name can contain a slash ("claude/some-branch"). Put straight
+        # into a file name it reads as a path into a directory that does not
+        # exist, and the copy/rename steps below fail. They use this slug
+        # instead. For a tag and for master it is identical to the ref name, so
+        # released file names do not change. Written before any decide(), which
+        # exits, so it is always set.
+        echo "slug=${REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
+        if [ "$FORCE" = "true" ]; then
+          decide true "forced manually (force: true)"
+        fi
+
+        if [ "$IS_TAG" = "true" ]; then
+          # Creating the release is the last step of this job, so a release
+          # that already exists for this tag means the version has been built
+          # and shipped once already.
+          if gh release view "$REF_NAME" >/dev/null 2>&1; then
+            decide false "release $REF_NAME already exists - re-run with force: true to rebuild it"
+          fi
+          decide true "new tag $REF_NAME"
+        fi
+
+        # Branch push. A push that touched nothing reaching the installer has
+        # nothing to build; every other case, and every case this cannot read,
+        # builds.
+        if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+          git fetch --no-tags --depth=50 origin "$BEFORE_SHA" >/dev/null 2>&1 || true
+          if changed=$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" 2>/dev/null) && [ -n "$changed" ]; then
+            code=$(echo "$changed" | grep -v -E '(\.md$|^docs/|^\.gitignore$|^\.gitattributes$|^LICENSE$)' || true)
+            if [ -z "$code" ]; then
+              decide false "documentation-only push"
+            fi
+          fi
+        fi
+
+        decide true "branch push"
+
     - name: Setup .NET
+      if: ${{ steps.guard.outputs.build == 'true' }}
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
 
+    # There is no packages.lock.json in the repository, so "cache: true" on
+    # setup-dotnet cannot be used - it fails the job when it finds no lock file
+    # to hash. The package folder is cached directly instead, which is what
+    # spares a full NuGet restore on a runner billed at 2x.
+    - name: Cache NuGet packages
+      if: ${{ steps.guard.outputs.build == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
     - name: Publish .NET App
+      if: ${{ steps.guard.outputs.build == 'true' }}
       run: dotnet publish MirthConnectVersionControl\MirthConnectVersionControl.csproj -c Release -r win-x64 --self-contained false -o MirthConnectVersionControl\bin\Release\net8.0-windows\publish
 
     - name: Publish Portable Single-File EXE (self-contained)
+      if: ${{ steps.guard.outputs.build == 'true' }}
       run: dotnet publish MirthConnectVersionControl\MirthConnectVersionControl.csproj -c Release
 
     - name: Copy Portable EXE to workspace root
+      if: ${{ steps.guard.outputs.build == 'true' }}
       shell: pwsh
       run: |
         $src = "MirthConnectVersionControl\bin\Release\net8.0-windows\win-x64\publish\MirthConnectVersionControl.exe"
@@ -40,14 +133,16 @@ jobs:
           Get-ChildItem -Recurse MirthConnectVersionControl\bin\Release\net8.0-windows | Select-Object FullName
           exit 1
         }
-        $dest = "MirthConnectVersionControl_Portable_${{ github.ref_name }}_win-x64.exe"
+        $dest = "MirthConnectVersionControl_Portable_${{ steps.guard.outputs.slug }}_win-x64.exe"
         Copy-Item $src $dest -Force
         Write-Host "Portable EXE copied to $dest"
 
     - name: Install Inno Setup
+      if: ${{ steps.guard.outputs.build == 'true' }}
       run: choco install innosetup
 
     - name: Build Installer
+      if: ${{ steps.guard.outputs.build == 'true' }}
       run: |
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" MCVC.iss
         if ($LASTEXITCODE -ne 0) { 
@@ -56,10 +151,11 @@ jobs:
         }
 
     - name: Rename Installer
+      if: ${{ steps.guard.outputs.build == 'true' }}
       run: |
         $src = "MirthConnectVersionControl_Setup.exe"
         if (Test-Path $src) {
-           $dest = "MirthConnectVersionControl_Setup_${{ github.ref_name }}.exe"
+           $dest = "MirthConnectVersionControl_Setup_${{ steps.guard.outputs.slug }}.exe"
            Move-Item $src $dest
            Write-Host "Successfully generated and renamed to $dest"
         } else {
@@ -69,8 +165,13 @@ jobs:
         }
 
     # SignPath Code Signing (only runs when SIGNPATH_API_TOKEN is configured)
+    #
+    # This upload is not a copy of the build for people to download - it is how
+    # the unsigned installer reaches SignPath, which reads it back by artifact
+    # id in the step below. It is kept for that reason alone, and expires after
+    # a day so it stops counting against Actions storage once the run is over.
     - name: Upload Unsigned Installer for Signing
-      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      if: ${{ steps.guard.outputs.build == 'true' && env.HAS_SIGNPATH == 'true' }}
       env:
         HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
       id: upload-unsigned
@@ -78,9 +179,10 @@ jobs:
       with:
         name: unsigned-installer
         path: MirthConnectVersionControl_Setup_*.exe
+        retention-days: 1
 
     - name: Sign Installer with SignPath
-      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      if: ${{ steps.guard.outputs.build == 'true' && env.HAS_SIGNPATH == 'true' }}
       env:
         HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
       id: sign
@@ -95,7 +197,7 @@ jobs:
         output-artifact-directory: './signed'
 
     - name: Use Signed Installer
-      if: ${{ env.HAS_SIGNPATH == 'true' }}
+      if: ${{ steps.guard.outputs.build == 'true' && env.HAS_SIGNPATH == 'true' }}
       env:
         HAS_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
       run: |
@@ -104,9 +206,28 @@ jobs:
         Move-Item ./signed/*.exe .
         Write-Host "Using signed installer"
 
+    # A manual run from a branch other than master gets no release - the step
+    # below is skipped for it - so without this the run would build both EXEs
+    # for 6-10 minutes on a 2x runner and leave nothing behind anywhere. The
+    # condition is the exact complement of the release condition, so the same
+    # bytes are never stored twice, and the artifact expires after a day.
+    - name: Upload Installer (manual build with no release)
+      if: ${{ steps.guard.outputs.build == 'true' && !startsWith(github.ref, 'refs/tags/') && github.ref != 'refs/heads/master' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: installer
+        path: |
+          MirthConnectVersionControl_Setup_*.exe
+          MirthConnectVersionControl_Portable_*_win-x64.exe
+        retention-days: 1
+
+    # Whenever this step runs, the release is the output of the run. Both EXEs
+    # are attached here, so nothing needs to be uploaded as a run artifact as
+    # well - the two upload-artifact steps that used to do that carried the
+    # same bytes a second time.
     - name: Create Release
       uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'
+      if: ${{ steps.guard.outputs.build == 'true' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master') }}
       with:
         tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
         prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -115,17 +236,3 @@ jobs:
           MirthConnectVersionControl_Portable_*_win-x64.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload Artifact (Non-Tag Build)
-      if: startsWith(github.ref, 'refs/tags/') == false
-      uses: actions/upload-artifact@v4
-      with:
-        name: Installer
-        path: MirthConnectVersionControl_Setup_*.exe
-
-    - name: Upload Artifact (Portable EXE, Non-Tag Build)
-      if: startsWith(github.ref, 'refs/tags/') == false
-      uses: actions/upload-artifact@v4
-      with:
-        name: Portable-EXE
-        path: MirthConnectVersionControl_Portable_*_win-x64.exe
