@@ -1,0 +1,65 @@
+name: Tests (template - inactive until develop exists)
+
+# Prepared on purpose, and INACTIVE on purpose: nothing in this file runs today.
+# The workflow name says so too, because the Actions UI shows only the name and
+# a green tick - never this comment - and a manual run here is reported as a
+# success without a single test having started.
+#
+# The repository has no test project and no 'develop' branch, so the only
+# trigger left enabled is the manual one, and the job below still carries the
+# final condition - which cannot be true until a pull request arrives from
+# 'develop'. Switching it on takes three steps:
+#   1. create the 'develop' branch and move day-to-day work onto it,
+#   2. add a test project to the solution,
+#   3. uncomment the 'pull_request' block below.
+#
+# The rule this implements: tests run ONLY for a pull request from 'develop'
+# into 'master'. 'on: pull_request: branches: [master]' filters on the TARGET
+# (base) branch - it says nothing about where the pull request comes from. The
+# source branch can only be filtered by a job condition, which is why
+# 'if: github.head_ref == ...' sits on the job and not in the 'on:' block.
+#
+# Accepted consequence: a pull request into 'master' from any branch other than
+# 'develop' runs no job at all, and GitHub reports that run as GREEN - a skipped
+# job counts as a success. There is deliberately no placeholder job to turn it
+# into a red result.
+
+on:
+  # pull_request:
+  #   branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Never true today: 'github.head_ref' is empty for a manual run, and there
+    # is no 'develop' branch to open a pull request from.
+    if: github.head_ref == 'develop'
+    # WinForms on net8.0-windows - the tests cannot run anywhere but Windows.
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    # No packages.lock.json in the repository, so "cache: true" on setup-dotnet
+    # cannot be used - it fails the job when it finds no lock file to hash.
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Run tests
+      run: dotnet test -c Release
